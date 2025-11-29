@@ -52,7 +52,6 @@ init_usuarios_db()
 
 def get_db_path(user: str) -> str:
     path = os.path.join(os.getcwd(), f"padron_{user}.db")
-    print(">>> BASE USADA:", path)
     return path
 
 
@@ -158,39 +157,73 @@ def get_resumen_padron(user, padron_id):
     return total, votaron, restan
 
 
+# ============================================================
+#        PROCESAR ARCHIVO EXCEL — MEJORADO AL MÁXIMO
+# ============================================================
+
 def process_file(file):
+    # ============================
+    #   LECTURA DEL ARCHIVO
+    # ============================
     if file.filename.endswith((".xlsx", ".xls")):
         df = pd.read_excel(file, dtype=str)
     elif file.filename.endswith(".csv"):
         df = pd.read_csv(file, dtype=str)
     else:
-        return None, "Formato no soportado."
+        return None, "Formato no soportado (solo Excel o CSV)"
 
-    df.columns = df.columns.str.lower().str.replace(" ", "").str.strip()
+    # Normalizar nombres de columnas
+    df.columns = df.columns.str.lower().str.strip().str.replace(" ", "")
 
+    # Buscar columnas relevantes
     col_apellido = next((c for c in df.columns if "apellido" in c), None)
-    col_nombre = next((c for c in df.columns if "nombre" in c), None)
+    col_nombre = next((c for c in df.columns if "nombre" in c and c != col_apellido), None)
     col_dni = next((c for c in df.columns if "dni" in c), None)
 
+    # Validar que exista DNI
     if not col_dni:
-        return None, f"No se encontró columna DNI. Columnas: {list(df.columns)}"
+        return None, f"No se encontró la columna DNI. Columnas detectadas: {list(df.columns)}"
 
-    if not col_apellido and not col_nombre:
-        df["full"] = df[df.columns[0]].astype(str)
+    # ============================
+    #   GENERAR NOMBRE COMPLETO
+    # ============================
+    if col_apellido and col_nombre:
+        df["full"] = (
+            df[col_apellido].fillna("") + " " +
+            df[col_nombre].fillna("")
+        )
+    elif col_apellido:
+        df["full"] = df[col_apellido].fillna("")
+    elif col_nombre:
+        df["full"] = df[col_nombre].fillna("")
     else:
-        apellido = df[col_apellido].astype(str) if col_apellido else ""
-        nombre = df[col_nombre].astype(str) if col_nombre else ""
-        df["full"] = (apellido + " " + nombre).str.strip()
+        df["full"] = df[df.columns[0]].fillna("")
 
+    # Quitar espacios repetidos y normalizar
+    df["full"] = df["full"].astype(str)
+    df["full"] = df["full"].str.replace(r"\s+", " ", regex=True)
+    df["full"] = df["full"].str.strip()
+    df["full"] = df["full"].str.upper()
+
+    # Normalizar DNI
+    df[col_dni] = df[col_dni].astype(str)
+    df[col_dni] = df[col_dni].str.replace(r"\D", "", regex=True).str.strip()
+
+    # Filtrar columnas importantes
     df_clean = df[["full", col_dni]].copy()
-    df_clean = df_clean.rename(columns={"full": "nombre", col_dni: "dni"})
+    df_clean.columns = ["nombre", "dni"]
+
+    # Eliminar duplicados reales
     df_clean = df_clean.drop_duplicates()
+
+    # Eliminar filas vacías o inválidas
+    df_clean = df_clean[(df_clean["nombre"] != "") & (df_clean["dni"] != "")]
 
     return df_clean, None
 
 
 # ============================================================
-#  RUTAS
+#  RUTAS PRINCIPALES
 # ============================================================
 
 @app.route("/")
