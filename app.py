@@ -45,7 +45,6 @@ def crear_usuario(nombre):
 
 init_usuarios_db()
 
-
 # ============================================================
 #  DB PRIVADA PARA CADA USUARIO
 # ============================================================
@@ -83,7 +82,7 @@ def init_user_db(user):
 
 
 # ============================================================
-#  PADRONES POR USUARIO
+# PADRONES
 # ============================================================
 
 def get_padrones(user):
@@ -107,7 +106,7 @@ def crear_padron(user, nombre):
 
 
 # ============================================================
-#  SOCIOS
+# SOCIOS
 # ============================================================
 
 def get_socios(user, padron_id, buscar=""):
@@ -158,13 +157,11 @@ def get_resumen_padron(user, padron_id):
 
 
 # ============================================================
-#        PROCESAR ARCHIVO EXCEL — MEJORADO AL MÁXIMO
+#  PROCESAR ARCHIVO (CON SOPORTE SIN DNI)
 # ============================================================
 
 def process_file(file):
-    # ============================
-    #   LECTURA DEL ARCHIVO
-    # ============================
+    # Leer archivo
     if file.filename.endswith((".xlsx", ".xls")):
         df = pd.read_excel(file, dtype=str)
     elif file.filename.endswith(".csv"):
@@ -172,26 +169,22 @@ def process_file(file):
     else:
         return None, "Formato no soportado (solo Excel o CSV)"
 
-    # Normalizar nombres de columnas
-    df.columns = df.columns.str.lower().str.strip().str.replace(" ", "")
+    # Normalizar columnas
+    df.columns = df.columns.str.lower().str.replace(" ", "").str.strip()
 
-    # Buscar columnas relevantes
+    # Detectar columnas
     col_apellido = next((c for c in df.columns if "apellido" in c), None)
     col_nombre = next((c for c in df.columns if "nombre" in c and c != col_apellido), None)
     col_dni = next((c for c in df.columns if "dni" in c), None)
 
-    # Validar que exista DNI
+    # Crear columna DNI si no existe
     if not col_dni:
-        return None, f"No se encontró la columna DNI. Columnas detectadas: {list(df.columns)}"
+        df["dni"] = ""
+        col_dni = "dni"
 
-    # ============================
-    #   GENERAR NOMBRE COMPLETO
-    # ============================
+    # Construir nombre completo
     if col_apellido and col_nombre:
-        df["full"] = (
-            df[col_apellido].fillna("") + " " +
-            df[col_nombre].fillna("")
-        )
+        df["full"] = (df[col_apellido].fillna("") + " " + df[col_nombre].fillna(""))
     elif col_apellido:
         df["full"] = df[col_apellido].fillna("")
     elif col_nombre:
@@ -199,25 +192,26 @@ def process_file(file):
     else:
         df["full"] = df[df.columns[0]].fillna("")
 
-    # Quitar espacios repetidos y normalizar
-    df["full"] = df["full"].astype(str)
-    df["full"] = df["full"].str.replace(r"\s+", " ", regex=True)
-    df["full"] = df["full"].str.strip()
+    # Limpiar nombre
+    df["full"] = df["full"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     df["full"] = df["full"].str.upper()
 
-    # Normalizar DNI
+    # Limpiar DNI
     df[col_dni] = df[col_dni].astype(str)
     df[col_dni] = df[col_dni].str.replace(r"\D", "", regex=True).str.strip()
 
-    # Filtrar columnas importantes
+    # Asignar DNI vacío como "SIN DNI"
+    df[col_dni] = df[col_dni].replace("", "SIN DNI")
+
+    # Crear estructura final
     df_clean = df[["full", col_dni]].copy()
     df_clean.columns = ["nombre", "dni"]
 
-    # Eliminar duplicados reales
-    df_clean = df_clean.drop_duplicates()
+    # Quitar nombres vacíos
+    df_clean = df_clean[df_clean["nombre"] != ""]
 
-    # Eliminar filas vacías o inválidas
-    df_clean = df_clean[(df_clean["nombre"] != "") & (df_clean["dni"] != "")]
+    # Quitar duplicados
+    df_clean = df_clean.drop_duplicates()
 
     return df_clean, None
 
@@ -376,6 +370,10 @@ def descargar(user, padron_id):
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
+
+# ============================================================
+#  EJECUCIÓN LOCAL
+# ============================================================
 
 if __name__ == "__main__":
     app.run(debug=True)
